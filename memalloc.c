@@ -128,3 +128,63 @@ int *add_used_block(ssize_t size) {
     
     return (int *)((char *)smallest_block + sizeof(area));
 }
+
+// free block, clear its memory n attempts to merge other free blocks around it
+bool an_free(void *ptr) {
+  my_stats *malloc_header = get_malloc_header();
+  while (malloc_header->my_simple_lock) {
+    sleep(1); // primitive lock check 
+  };
+  malloc_header->my_simple_lock = true;
+
+  // go to block header
+  area *block = ptr - sizeof(area);
+
+  // check if valid block
+  if (block->marker != BLOCK_MARKER) {
+    return false;
+  } else {
+    block->in_use = false;  // mark block as free n free its mem
+    memset(ptr, 0, block->length);
+
+    // forward coalescing
+    if (block->next != NULL && (block->next)->in_use == false) {
+      area *not_used_next_block = block->next;
+      // skip next block in linked list.
+      if (not_used_next_block != NULL) {
+        block->next = not_used_next_block->next;
+        // if two blocks ahead is not null, connect it back
+        if (not_used_next_block->next != NULL) {
+          not_used_next_block->next->prev = block;
+        }
+      } else {
+        block->next = NULL;
+      }
+
+      // merge n free it's memory
+      block->length += sizeof(area) + not_used_next_block->length;
+      memset((void *)not_used_next_block, 0, sizeof(area) + not_used_next_block->length);
+      malloc_header->amount_of_blocks -= 1;
+    }
+
+    // backward coalescing
+    if (block->prev != NULL && (block->prev)->in_use == false) {
+      area *to_delete_block = block;
+      block = block->prev; // move backward
+
+      // expand previous block
+      block->length += sizeof(area) + to_delete_block->length;
+
+      // fix links n update header
+      block->next = to_delete_block->next;
+      if (block->next != NULL) {
+        block->next->prev = block;
+      }
+      malloc_header->amount_of_blocks -= 1;
+    }
+
+    reduce_heap_size_if_possible();
+  }
+  malloc_header->my_simple_lock = false;
+  return true;
+}
