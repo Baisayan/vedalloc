@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <unistd.h>
 
@@ -19,11 +20,13 @@ typedef struct stats {
 } my_stats;
 
 const int MAGICAL_BYTES = 0x55; // header marker 
-const int BLOCK_MARKER = 0xDD;  // block marker
+const int BLOCK_MARKER = 0xDD;
+const int PAGE_SIZE = 4096;
 
 char *heap_start = NULL;
 
-// gets allocator header
+area *find_last_block();
+
 my_stats *get_malloc_header() {
   assert(heap_start != NULL);
   my_stats *malloc_header = (my_stats *)heap_start;
@@ -31,34 +34,121 @@ my_stats *get_malloc_header() {
   return malloc_header;
 }
 
-// request 4kb mem n initialize first free block with headers
-int *an_malloc(ssize_t size) {
-    if (heap_start == NULL) {
-      heap_start = sbrk(0); // get current end of heap 
-      sbrk(4096);  // 4kb as most linux os page size of mem is 4096
+area *find_previous_used_block(area *ptr) {
+  area *mov_ptr = ptr;
+  while (mov_ptr->prev != NULL) {
+    mov_ptr = mov_ptr->prev;
+    if (mov_ptr->in_use == true) {
+      return mov_ptr;
+    }
+  }
+  return NULL;
+}
+
+// heap shrinking n ensure valid final free block
+void reduce_heap_size_if_possible() {
+  area *last_block = find_last_block();
+  area *prev_used_block = find_previous_used_block(last_block);
+
+  // shrink to min 1 page
+  if (prev_used_block == NULL) {
+    if (last_block->length > PAGE_SIZE) {
+      last_block->length = PAGE_SIZE;
+    }
+    prev_used_block = last_block;
+  }
+
+  // calc new end of mem
+  void *new_end = (void *)prev_used_block + sizeof(area) + prev_used_block->length;
+  void *heap_end = sbrk(0);
+
+  // shrink heap page by page
+  while (new_end < heap_end - PAGE_SIZE) {
+    sbrk(-PAGE_SIZE);
+    heap_end = sbrk(0);
+    my_stats *malloc_header = get_malloc_header();
+    malloc_header->amount_of_pages -= 1;
+  }
+
+  // handle leftover gap, remove free bytes
+  if (heap_end - new_end > sizeof(area) + 1) {
+    area *new_not_used_block = (area *)new_end;
+    new_not_used_block->marker = BLOCK_MARKER;
+    new_not_used_block->in_use = false;
+    new_not_used_block->prev = prev_used_block;
+    new_not_used_block->next = NULL;
+    new_not_used_block->length = heap_end - new_end - sizeof(area);
+    prev_used_block->next = new_not_used_block;
+  }
+}
+
+// free block, clear its memory n attempts to merge other free blocks around it
+bool ved_free(void *ptr) {
+  my_stats *malloc_header = get_malloc_header();
+  while (malloc_header->my_simple_lock) {
+    sleep(1); // primitive lock check 
+  };
+  malloc_header->my_simple_lock = true;
+
+  // go to block header
+  area *block = ptr - sizeof(area);
+
+  // check if valid block
+  if (block->marker != BLOCK_MARKER) {
+    return false;
+  } else {
+    block->in_use = false;  // mark block as free n free its mem
+    memset(ptr, 0, block->length);
+
+    // forward coalescing
+    if (block->next != NULL && (block->next)->in_use == false) {
+      area *not_used_next_block = block->next;
+      // skip next block in linked list.
+      if (not_used_next_block != NULL) {
+        block->next = not_used_next_block->next;
+        // if two blocks ahead is not null, connect it back
+        if (not_used_next_block->next != NULL) {
+          not_used_next_block->next->prev = block;
+        }
+      } else {
+        block->next = NULL;
+      }
+
+      // merge n free it's memory
+      block->length += sizeof(area) + not_used_next_block->length;
+      memset((void *)not_used_next_block, 0, sizeof(area) + not_used_next_block->length);
+      malloc_header->amount_of_blocks -= 1;
     }
 
-    char *heap_end = sbrk(0);
-    long int length = heap_end - heap_start;
+    // backward coalescing
+    if (block->prev != NULL && (block->prev)->in_use == false) {
+      area *to_delete_block = block;
+      block = block->prev; // move backward
 
-    // check if magic byte are at start of heap
-    if ((*heap_start) != MAGICAL_BYTES) {
-      *(heap_start) = MAGICAL_BYTES;
-      my_stats *malloc_header = (my_stats *)heap_start;
-      malloc_header->amount_of_blocks = 1;
-      malloc_header->amount_of_pages = 1;
+      // expand previous block
+      block->length += sizeof(area) + to_delete_block->length;
 
-      // create first free block
-      area *first_block = (area *)((char *)heap_start + sizeof(my_stats));
-
-      first_block->marker = BLOCK_MARKER;
-      first_block->in_use = false;
-      first_block->length = length - sizeof(my_stats) - sizeof(area);
-      first_block->next = NULL;
-      first_block->prev = NULL;
+      // fix links n update header
+      block->next = to_delete_block->next;
+      if (block->next != NULL) {
+        block->next->prev = block;
+      }
+      malloc_header->amount_of_blocks -= 1;
     }
 
-    return add_used_block(size);
+    reduce_heap_size_if_possible();
+  }
+  malloc_header->my_simple_lock = false;
+  return true;
+}
+
+area *find_last_block() {
+  my_stats *malloc_header = get_malloc_header();
+  area *block = (area *)((char *)malloc_header + sizeof(my_stats));
+  while (block->next != NULL) {
+    block = block->next;
+  }
+  return block;
 }
 
 // blocks are created here
@@ -129,62 +219,32 @@ int *add_used_block(ssize_t size) {
     return (int *)((char *)smallest_block + sizeof(area));
 }
 
-// free block, clear its memory n attempts to merge other free blocks around it
-bool an_free(void *ptr) {
-  my_stats *malloc_header = get_malloc_header();
-  while (malloc_header->my_simple_lock) {
-    sleep(1); // primitive lock check 
-  };
-  malloc_header->my_simple_lock = true;
-
-  // go to block header
-  area *block = ptr - sizeof(area);
-
-  // check if valid block
-  if (block->marker != BLOCK_MARKER) {
-    return false;
-  } else {
-    block->in_use = false;  // mark block as free n free its mem
-    memset(ptr, 0, block->length);
-
-    // forward coalescing
-    if (block->next != NULL && (block->next)->in_use == false) {
-      area *not_used_next_block = block->next;
-      // skip next block in linked list.
-      if (not_used_next_block != NULL) {
-        block->next = not_used_next_block->next;
-        // if two blocks ahead is not null, connect it back
-        if (not_used_next_block->next != NULL) {
-          not_used_next_block->next->prev = block;
-        }
-      } else {
-        block->next = NULL;
-      }
-
-      // merge n free it's memory
-      block->length += sizeof(area) + not_used_next_block->length;
-      memset((void *)not_used_next_block, 0, sizeof(area) + not_used_next_block->length);
-      malloc_header->amount_of_blocks -= 1;
+// request 4kb mem n initialize first free block with headers
+int *ved_malloc(ssize_t size) {
+    if (heap_start == NULL) {
+      heap_start = sbrk(0); // get current end of heap 
+      sbrk(4096);  // 4kb as most linux os page size of mem is 4096
     }
 
-    // backward coalescing
-    if (block->prev != NULL && (block->prev)->in_use == false) {
-      area *to_delete_block = block;
-      block = block->prev; // move backward
+    char *heap_end = sbrk(0);
+    long int length = heap_end - heap_start;
 
-      // expand previous block
-      block->length += sizeof(area) + to_delete_block->length;
+    // check if magic byte are at start of heap
+    if ((*heap_start) != MAGICAL_BYTES) {
+      *(heap_start) = MAGICAL_BYTES;
+      my_stats *malloc_header = (my_stats *)heap_start;
+      malloc_header->amount_of_blocks = 1;
+      malloc_header->amount_of_pages = 1;
 
-      // fix links n update header
-      block->next = to_delete_block->next;
-      if (block->next != NULL) {
-        block->next->prev = block;
-      }
-      malloc_header->amount_of_blocks -= 1;
+      // create first free block
+      area *first_block = (area *)((char *)heap_start + sizeof(my_stats));
+
+      first_block->marker = BLOCK_MARKER;
+      first_block->in_use = false;
+      first_block->length = length - sizeof(my_stats) - sizeof(area);
+      first_block->next = NULL;
+      first_block->prev = NULL;
     }
 
-    reduce_heap_size_if_possible();
-  }
-  malloc_header->my_simple_lock = false;
-  return true;
+    return add_used_block(size);
 }
