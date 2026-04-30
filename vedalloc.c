@@ -20,7 +20,6 @@ typedef struct block_header {
   
 typedef struct heap_header {
     uint8_t magic;
-    bool lock;
     size_t total_blocks;
     size_t total_pages;
 } heap_header;
@@ -86,19 +85,14 @@ void reduce_heap_if_possible() {
 }
 
 // free block, clear its memory n attempts to merge other free blocks
-bool ved_free(void *ptr) {
+bool vedfree(void *ptr) {
   if (!ptr) return false;
 
   heap_header *hdr = get_heap_header();
-  while (hdr->lock) sleep(1);
-  hdr->lock = true;
-
-  // go to block header
   block_header *block = (block_header *)((char *)ptr - sizeof(block_header));
 
   // check if valid block
   if (block->magic != BLOCK_MAGIC) {
-    hdr->lock = false;
     return false;
   } 
 
@@ -132,8 +126,6 @@ bool ved_free(void *ptr) {
   }
 
   reduce_heap_if_possible();
-
-  hdr->lock = false;
   return true;
 }
 
@@ -149,11 +141,6 @@ block_header *find_last_block() {
 // blocks are created here
 void *add_used_block(size_t size) {
     heap_header *hdr = get_heap_header();
-
-    while (hdr->lock) sleep(1);
-    hdr->lock = true;
-
-    // skip header n point to first block
     block_header *block = (block_header *)(heap_start + sizeof(heap_header));
 
     // best fit algo 
@@ -208,13 +195,11 @@ void *add_used_block(size_t size) {
       hdr->total_blocks++;
   }
 
-  hdr->lock = false;
-
   return (char *)best + sizeof(block_header);
 }
 
 // request 4kb mem n initialize first free block with headers
-void *ved_malloc(size_t size) {
+void *vedalloc(size_t size) {
     if (!heap_start) {
       heap_start = sbrk(0);
       sbrk(PAGE_SIZE);
@@ -228,7 +213,6 @@ void *ved_malloc(size_t size) {
       heap_header *hdr = (heap_header *)heap_start;
 
       hdr->magic = HEAP_MAGIC;
-      hdr->lock = false;
       hdr->total_blocks = 1;
       hdr->total_pages = 1;
 
