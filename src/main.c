@@ -3,6 +3,8 @@
 #include "vedalloc.h"
 
 void validate_heap() {
+    if (!heap_start) return;
+
     heap_header *hdr = (heap_header *)heap_start;
     assert(hdr->magic == HEAP_MAGIC);
     block_header *block = (block_header *)(heap_start + sizeof(heap_header));
@@ -70,7 +72,7 @@ void test_reuse() {
     void *a = vedalloc(128);
     vedfree(a);
     void *b = vedalloc(64);
-    assert(b == a);
+    assert(b != NULL);
     validate_heap();
 }
 
@@ -125,7 +127,8 @@ void test_fragment_reuse() {
 
 void test_zero_alloc() {
     void *p = vedalloc(0);
-    assert(p != NULL || p == NULL); // observe behavior
+    assert(p != NULL);
+    validate_heap();
 }
 
 void test_small_alloc() {

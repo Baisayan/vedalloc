@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <string.h> 
 
+#define ALIGN8(x) (((x) + 7) & ~7)
+
 char *heap_start = NULL;
 
 static heap_header *get_heap_header() {
@@ -49,8 +51,8 @@ static void reduce_heap_if_possible() {
   heap_header *hdr = get_heap_header();
 
   // shrink heap page by page
-  while (new_end < heap_end - PAGE_SIZE) {
-    sbrk(-PAGE_SIZE);
+  while (new_end < heap_end - PAGE_SIZE) { 
+    if (sbrk(-PAGE_SIZE) == (void *)-1) break;
     heap_end = sbrk(0); 
     hdr->total_pages--;
   }
@@ -72,7 +74,6 @@ static void reduce_heap_if_possible() {
 bool vedfree(void *ptr) {
   if (!ptr) return false;
 
-  heap_header *hdr = get_heap_header();
   block_header *block = (block_header *)((char *)ptr - sizeof(block_header));
 
   // check if valid block
@@ -86,29 +87,26 @@ bool vedfree(void *ptr) {
 
   block->in_use = false;  // mark block as free n free its mem
   memset(ptr, 0, block->size);
+  heap_header *hdr = get_heap_header();
 
   // forward coalesce
   if (block->next && !block->next->in_use) {
     block_header *not_used_next = block->next;
-
     block->next = not_used_next->next;
     if (not_used_next->next) not_used_next->next->prev = block;
 
     block->size += sizeof(block_header) + not_used_next->size;
     memset(not_used_next, 0, sizeof(block_header) + not_used_next->size);
-
     hdr->total_blocks--;
   }
 
   // backward coalesce
   if (block->prev && !block->prev->in_use) {
     block_header *prev = block->prev;
-
     prev->size += sizeof(block_header) + block->size;
     prev->next = block->next;
 
     if (block->next) block->next->prev = prev;
-
     block = prev;
     hdr->total_blocks--;
   }
@@ -141,7 +139,7 @@ static void *add_used_block(size_t size) {
       last = find_last_block();
 
       while (last->size < size) {
-        sbrk(PAGE_SIZE);
+        if (sbrk(PAGE_SIZE) == (void *)-1) return NULL;
         last->size += PAGE_SIZE;
         hdr->total_pages++;
       }
@@ -176,31 +174,34 @@ static void *add_used_block(size_t size) {
 }
 
 void *vedalloc(size_t size) {
-    if (!heap_start) {
-      heap_start = sbrk(0);
-      sbrk(PAGE_SIZE);
-      memset(heap_start, 0, PAGE_SIZE);
-    }
+  if (size == 0) size = 1;
+  size = ALIGN8(size); 
 
-    char *heap_end = sbrk(0);
-    size_t length = heap_end - heap_start;
+  if (!heap_start) {
+    heap_start = sbrk(0);
+    if (sbrk(PAGE_SIZE) == (void *)-1) return NULL;
+    memset(heap_start, 0, PAGE_SIZE);
+  }
 
-    if (*heap_start != HEAP_MAGIC) {
-      heap_header *hdr = (heap_header *)heap_start;
+  char *heap_end = sbrk(0);
+  size_t length = heap_end - heap_start;
 
-      hdr->magic = HEAP_MAGIC;
-      hdr->total_blocks = 1;
-      hdr->total_pages = 1;
+  if (*heap_start != HEAP_MAGIC) {
+    heap_header *hdr = (heap_header *)heap_start;
 
-      // create first free block
-      block_header *first = (block_header *)(heap_start + sizeof(heap_header));
+    hdr->magic = HEAP_MAGIC;
+    hdr->total_blocks = 1;
+    hdr->total_pages = 1;
 
-      first->magic = BLOCK_MAGIC;
-      first->in_use = false;
-      first->size = length - sizeof(heap_header) - sizeof(block_header);
-      first->next = NULL;
-      first->prev = NULL;
-    }
+    // create first free block
+    block_header *first = (block_header *)(heap_start + sizeof(heap_header));
 
-    return add_used_block(size);
+    first->magic = BLOCK_MAGIC;
+    first->in_use = false;
+    first->size = length - sizeof(heap_header) - sizeof(block_header);
+    first->next = NULL;
+    first->prev = NULL;
+  }
+
+  return add_used_block(size);
 }
