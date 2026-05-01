@@ -1,7 +1,6 @@
 #include "vedalloc.h"
 #include <unistd.h>
 #include <assert.h>
-#include <string.h> 
 
 #define ALIGN8(x) (((x) + 7) & ~7)
 
@@ -82,7 +81,6 @@ bool vedfree(void *ptr) {
   }
 
   block->in_use = false;  // mark block as free n free its mem
-  memset(ptr, 0, block->size);
   heap_header *hdr = get_heap_header();
 
   // forward coalesce
@@ -91,7 +89,6 @@ bool vedfree(void *ptr) {
     block->size += sizeof(block_header) + not_used_next->size;
     block->next = not_used_next->next;
     if (not_used_next->next) not_used_next->next->prev = block;
-    memset(not_used_next, 0, sizeof(block_header) + not_used_next->size);
     hdr->total_blocks--;
   }
 
@@ -168,7 +165,6 @@ void *vedalloc(size_t size) {
   if (!heap_start) {
     heap_start = sbrk(0);
     if (sbrk(PAGE_SIZE) == (void *)-1) return NULL;
-    memset(heap_start, 0, PAGE_SIZE);
   }
 
   if (*heap_start != HEAP_MAGIC) {
