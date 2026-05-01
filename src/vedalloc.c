@@ -78,7 +78,11 @@ bool vedfree(void *ptr) {
   // check if valid block
   if (block->magic != BLOCK_MAGIC) {
     return false;
-  } 
+  }
+
+  if (!block->in_use) {
+    return false;
+  }
 
   block->in_use = false;  // mark block as free n free its mem
   memset(ptr, 0, block->size);
