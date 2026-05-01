@@ -28,4 +28,6 @@ typedef struct heap_header {
 #define BLOCK_MAGIC 0xDD
 #define PAGE_SIZE 4096
 
+void vedalloc_reset();
+
 #endif

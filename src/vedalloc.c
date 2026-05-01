@@ -7,6 +7,10 @@
 
 char *heap_start = NULL;
 
+void vedalloc_reset() {
+  heap_start = NULL;
+}
+
 static heap_header *get_heap_header() {
   assert(heap_start != NULL);
   heap_header *hdr = (heap_header *)heap_start;
@@ -23,53 +27,53 @@ static block_header *find_last_block() {
   return block;
 }
 
-static block_header *find_previous_used_block(block_header *ptr) {
-  block_header *cur = ptr;
-  while (cur->prev != NULL) {
-    cur = cur->prev;
-    if (cur->in_use) return cur;
-  }
-  return NULL;
-}
+// static block_header *find_previous_used_block(block_header *ptr) {
+//   block_header *cur = ptr;
+//   while (cur->prev != NULL) {
+//     cur = cur->prev;
+//     if (cur->in_use) return cur;
+//   }
+//   return NULL;
+// }
 
-static void reduce_heap_if_possible() {
-  block_header *last_block = find_last_block();
-  block_header *prev_used_block = find_previous_used_block(last_block);
+// static void reduce_heap_if_possible() {
+//   block_header *last_block = find_last_block();
+//   block_header *prev_used_block = find_previous_used_block(last_block);
 
-  // shrink to min 1 page
-  if (prev_used_block == NULL) {
-    if (last_block->size > PAGE_SIZE) {
-      last_block->size = PAGE_SIZE;
-    }
-    prev_used_block = last_block;
-  }
+//   // shrink to min 1 page
+//   if (prev_used_block == NULL) {
+//     if (last_block->size > PAGE_SIZE) {
+//       last_block->size = PAGE_SIZE;
+//     }
+//     prev_used_block = last_block;
+//   }
 
-  // calc new end of mem
-  void *new_end = (char *)prev_used_block + sizeof(block_header) + prev_used_block->size;
-  void *heap_end = sbrk(0);
+//   // calc new end of mem
+//   void *new_end = (char *)prev_used_block + sizeof(block_header) + prev_used_block->size;
+//   void *heap_end = sbrk(0);
 
-  heap_header *hdr = get_heap_header();
+//   heap_header *hdr = get_heap_header();
 
-  // shrink heap page by page
-  while (new_end < heap_end - PAGE_SIZE) { 
-    if (sbrk(-PAGE_SIZE) == (void *)-1) break;
-    heap_end = sbrk(0); 
-    hdr->total_pages--;
-  }
+//   // shrink heap page by page
+//   while (new_end < heap_end - PAGE_SIZE) { 
+//     if (sbrk(-PAGE_SIZE) == (void *)-1) break;
+//     heap_end = sbrk(0); 
+//     hdr->total_pages--;
+//   }
 
-  // handle leftover gap, remove free bytes
-  if ((size_t)((char *)heap_end - (char *)new_end) > sizeof(block_header) + 1) {
-    block_header *free_block = (block_header *)new_end;
+//   // handle leftover gap, remove free bytes
+//   if ((size_t)((char *)heap_end - (char *)new_end) > sizeof(block_header) + 1) {
+//     block_header *free_block = (block_header *)new_end;
 
-    free_block->magic = BLOCK_MAGIC;
-    free_block->in_use = false;
-    free_block->prev = prev_used_block;
-    free_block->next = NULL;
-    free_block->size = (char *)heap_end - (char *)new_end - sizeof(block_header);
+//     free_block->magic = BLOCK_MAGIC;
+//     free_block->in_use = false;
+//     free_block->prev = prev_used_block;
+//     free_block->next = NULL;
+//     free_block->size = (char *)heap_end - (char *)new_end - sizeof(block_header);
 
-    prev_used_block->next = free_block;
-  }
-}
+//     prev_used_block->next = free_block;
+//   }
+// }
 
 bool vedfree(void *ptr) {
   if (!ptr) return false;
@@ -111,7 +115,7 @@ bool vedfree(void *ptr) {
     hdr->total_blocks--;
   }
 
-  reduce_heap_if_possible();
+  // reduce_heap_if_possible();
   return true;
 }
 
