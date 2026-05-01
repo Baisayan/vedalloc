@@ -12,15 +12,13 @@ void vedalloc_reset() {
 }
 
 static heap_header *get_heap_header() {
-  assert(heap_start != NULL);
   heap_header *hdr = (heap_header *)heap_start;
   assert(hdr->magic == HEAP_MAGIC);
   return hdr;
 }
 
 static block_header *find_last_block() {
-  heap_header *hdr = get_heap_header();
-  block_header *block = (block_header *)((char *)hdr + sizeof(heap_header));
+  block_header *block = (block_header *)(heap_start + sizeof(heap_header));
   while (block->next) {
     block = block->next;
   }
@@ -77,15 +75,9 @@ static block_header *find_last_block() {
 
 bool vedfree(void *ptr) {
   if (!ptr) return false;
-
   block_header *block = (block_header *)((char *)ptr - sizeof(block_header));
 
-  // check if valid block
-  if (block->magic != BLOCK_MAGIC) {
-    return false;
-  }
-
-  if (!block->in_use) {
+  if (block->magic != BLOCK_MAGIC || !block->in_use) {
     return false;
   }
 
@@ -96,10 +88,9 @@ bool vedfree(void *ptr) {
   // forward coalesce
   if (block->next && !block->next->in_use) {
     block_header *not_used_next = block->next;
+    block->size += sizeof(block_header) + not_used_next->size;
     block->next = not_used_next->next;
     if (not_used_next->next) not_used_next->next->prev = block;
-
-    block->size += sizeof(block_header) + not_used_next->size;
     memset(not_used_next, 0, sizeof(block_header) + not_used_next->size);
     hdr->total_blocks--;
   }
@@ -109,9 +100,7 @@ bool vedfree(void *ptr) {
     block_header *prev = block->prev;
     prev->size += sizeof(block_header) + block->size;
     prev->next = block->next;
-
     if (block->next) block->next->prev = prev;
-    block = prev;
     hdr->total_blocks--;
   }
 
@@ -123,58 +112,53 @@ static void *add_used_block(size_t size) {
     heap_header *hdr = get_heap_header();
     block_header *block = (block_header *)(heap_start + sizeof(heap_header));
 
-    block_header *best = NULL;
-    block_header *last = block;
+    block_header *fit = NULL;
 
     while (block) {
-      assert(block->magic == BLOCK_MAGIC);
-
       if (!block->in_use && block->size >= size) {
-        if (!best || block->size < best->size) {
-          best = block;
-        }
-      }
-      last = block;
+        fit = block;
+        break;
+      } 
       block = block->next;
     }
 
     // if no big enough blocks, extend heap
-    if (!best) {
-      last = find_last_block();
+    if (!fit) {
+      block_header *last = find_last_block();
 
-      while (last->size < size) {
-        if (sbrk(PAGE_SIZE) == (void *)-1) return NULL;
-        last->size += PAGE_SIZE;
-        hdr->total_pages++;
-      }
-      best = last;
+      size_t grow = ((size / PAGE_SIZE) + 1) * PAGE_SIZE;
+      if (sbrk(grow) == (void *)-1) return NULL;
+
+      last->size += grow;
+      hdr->total_pages += grow / PAGE_SIZE;
+
+      fit = last;
     }
 
-    best->in_use = true;
+    fit->in_use = true;
 
     // create new free block
-    size_t remaining = best->size - size;
+    size_t remaining = fit->size - size;
 
     if (remaining > sizeof(block_header) + 1) {
       block_header *new_block =
-          (block_header *)((char *)best + sizeof(block_header) + size);
+          (block_header *)((char *)fit + sizeof(block_header) + size);
 
       new_block->magic = BLOCK_MAGIC;
       new_block->in_use = false;
       new_block->size = remaining - sizeof(block_header);
-      new_block->prev = best;
-      new_block->next = best->next;
+      new_block->prev = fit;
+      new_block->next = fit->next;
 
       if (new_block->next)
           new_block->next->prev = new_block;
 
-      best->next = new_block;
-      best->size = size;
-
+      fit->next = new_block;
+      fit->size = size;
       hdr->total_blocks++;
   }
 
-  return (char *)best + sizeof(block_header);
+  return (char *)fit + sizeof(block_header);
 }
 
 void *vedalloc(size_t size) {
@@ -186,9 +170,6 @@ void *vedalloc(size_t size) {
     if (sbrk(PAGE_SIZE) == (void *)-1) return NULL;
     memset(heap_start, 0, PAGE_SIZE);
   }
-
-  char *heap_end = sbrk(0);
-  size_t length = heap_end - heap_start;
 
   if (*heap_start != HEAP_MAGIC) {
     heap_header *hdr = (heap_header *)heap_start;
@@ -202,7 +183,7 @@ void *vedalloc(size_t size) {
 
     first->magic = BLOCK_MAGIC;
     first->in_use = false;
-    first->size = length - sizeof(heap_header) - sizeof(block_header);
+    first->size = PAGE_SIZE - sizeof(heap_header) - sizeof(block_header);
     first->next = NULL;
     first->prev = NULL;
   }
