@@ -1,41 +1,27 @@
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
+#include "vedalloc.h"
 #include <unistd.h>
 #include <assert.h>
 #include <string.h> 
 
-#define HEAP_MAGIC 0x55
-#define BLOCK_MAGIC 0xDD
-#define PAGE_SIZE 4096
-
-typedef struct block_header {
-    uint8_t magic;
-    bool in_use;
-    size_t size;
-    struct block_header *prev;
-    struct block_header *next;
-} block_header;
-  
-typedef struct heap_header {
-    uint8_t magic;
-    size_t total_blocks;
-    size_t total_pages;
-} heap_header;
-
 char *heap_start = NULL;
 
-block_header *find_last_block();
-
-heap_header *get_heap_header() {
+static heap_header *get_heap_header() {
   assert(heap_start != NULL);
   heap_header *hdr = (heap_header *)heap_start;
   assert(hdr->magic == HEAP_MAGIC);
   return hdr;
 }
 
-block_header *find_previous_used_block(block_header *ptr) {
+static block_header *find_last_block() {
+  heap_header *hdr = get_heap_header();
+  block_header *block = (block_header *)((char *)hdr + sizeof(heap_header));
+  while (block->next) {
+    block = block->next;
+  }
+  return block;
+}
+
+static block_header *find_previous_used_block(block_header *ptr) {
   block_header *cur = ptr;
   while (cur->prev != NULL) {
     cur = cur->prev;
@@ -44,8 +30,7 @@ block_header *find_previous_used_block(block_header *ptr) {
   return NULL;
 }
 
-// heap shrinking n ensure valid final free block
-void reduce_heap_if_possible() {
+static void reduce_heap_if_possible() {
   block_header *last_block = find_last_block();
   block_header *prev_used_block = find_previous_used_block(last_block);
 
@@ -71,7 +56,7 @@ void reduce_heap_if_possible() {
   }
 
   // handle leftover gap, remove free bytes
-  if ((char *)heap_end - (char *)new_end > sizeof(block_header) + 1) {
+  if ((size_t)((char *)heap_end - (char *)new_end) > sizeof(block_header) + 1) {
     block_header *free_block = (block_header *)new_end;
 
     free_block->magic = BLOCK_MAGIC;
@@ -84,7 +69,6 @@ void reduce_heap_if_possible() {
   }
 }
 
-// free block, clear its memory n attempts to merge other free blocks
 bool vedfree(void *ptr) {
   if (!ptr) return false;
 
@@ -129,21 +113,10 @@ bool vedfree(void *ptr) {
   return true;
 }
 
-block_header *find_last_block() {
-  heap_header *hdr = get_heap_header();
-  block_header *block = (block_header *)((char *)hdr + sizeof(heap_header));
-  while (block->next) {
-    block = block->next;
-  }
-  return block;
-}
-
-// blocks are created here
-void *add_used_block(size_t size) {
+static void *add_used_block(size_t size) {
     heap_header *hdr = get_heap_header();
     block_header *block = (block_header *)(heap_start + sizeof(heap_header));
 
-    // best fit algo 
     block_header *best = NULL;
     block_header *last = block;
 
@@ -198,17 +171,16 @@ void *add_used_block(size_t size) {
   return (char *)best + sizeof(block_header);
 }
 
-// request 4kb mem n initialize first free block with headers
 void *vedalloc(size_t size) {
     if (!heap_start) {
       heap_start = sbrk(0);
       sbrk(PAGE_SIZE);
+      memset(heap_start, 0, PAGE_SIZE);
     }
 
     char *heap_end = sbrk(0);
     size_t length = heap_end - heap_start;
 
-    // check if magic byte are at start of heap
     if (*heap_start != HEAP_MAGIC) {
       heap_header *hdr = (heap_header *)heap_start;
 

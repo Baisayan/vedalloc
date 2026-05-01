@@ -1,29 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-void *vedalloc(size_t size);
-bool vedfree(void *ptr);
-
-typedef struct block_header {
-    uint8_t magic;
-    bool in_use;
-    size_t size;
-    struct block_header *prev;
-    struct block_header *next;
-} block_header;
-
-typedef struct heap_header {
-    uint8_t magic;
-    size_t total_blocks;
-    size_t total_pages;
-} heap_header;
-
-extern char *heap_start;
-
-#define HEAP_MAGIC 0x55
-#define BLOCK_MAGIC 0xDD
+#include "vedalloc.h"
 
 void validate_heap() {
     heap_header *hdr = (heap_header *)heap_start;
@@ -51,11 +28,10 @@ void validate_heap() {
 
 void test_basic_alloc_free() {
     void *p = vedalloc(32);
-    assert(p != NULL);
-
+    assert(p);
     validate_heap();
 
-    assert(vedfree(p) == true);
+    assert(vedfree(p));
     validate_heap();
 }
 
@@ -93,17 +69,14 @@ void test_backward_coalesce() {
 void test_reuse() {
     void *a = vedalloc(128);
     vedfree(a);
-
     void *b = vedalloc(64);
-
     assert(b == a);
     validate_heap();
 }
 
 void test_heap_growth() {
     void *a = vedalloc(5000);
-
-    assert(a != NULL);
+    assert(a);
     validate_heap();
 }
 
@@ -129,6 +102,44 @@ void test_invalid_free() {
     assert(vedfree(&x) == false);
 }
 
+void test_double_free() {
+    void *p = vedalloc(64);
+    vedfree(p);
+    assert(vedfree(p) == false);
+}
+
+void test_fragment_reuse() {
+    void *a = vedalloc(100);
+    void *b = vedalloc(200);
+    void *c = vedalloc(300);
+
+    vedfree(b);
+
+    void *d = vedalloc(150);
+    assert(d != NULL);
+    assert(a != NULL);
+    assert(c != NULL);
+
+    validate_heap();
+}
+
+void test_zero_alloc() {
+    void *p = vedalloc(0);
+    assert(p != NULL || p == NULL); // observe behavior
+}
+
+void test_small_alloc() {
+    void *p = vedalloc(1);
+    assert(p);
+    validate_heap();
+}
+
+void test_shrink() {
+    void *p = vedalloc(8000);
+    vedfree(p);
+    validate_heap();
+}
+
 int main() {
     printf("Running tests...\n");
 
@@ -140,6 +151,11 @@ int main() {
     test_heap_growth();
     test_multiple_allocs();
     test_invalid_free();
+    test_double_free();
+    test_fragment_reuse();
+    test_zero_alloc();
+    test_small_alloc();
+    test_shrink();
 
     printf("All tests passed.\n");
     return 0;
