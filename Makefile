@@ -4,7 +4,7 @@ CFLAGS = -Wall -Wextra -g
 SRC = src
 BUILD = build
 
-OBJS = $(BUILD)/vedalloc.o
+OBJS = $(BUILD)/vedalloc.o $(BUILD)/vedalloc_v2.o
 
 all: test
 
@@ -14,7 +14,10 @@ $(BUILD):
 $(BUILD)/vedalloc.o: $(SRC)/vedalloc.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-bench: src/benchmark.c src/vedalloc.c
+$(BUILD)/vedalloc_v2.o: $(SRC)/vedalloc_v2.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+bench: $(SRC)/benchmark.c $(OBJS)
 	$(CC) $(CFLAGS) $^ -o build/bench
 
 runbench:

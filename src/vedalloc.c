@@ -3,6 +3,23 @@
 #include <assert.h>
 
 #define ALIGN8(x) (((x) + 7) & ~7)
+#define HEAP_MAGIC 0x55
+#define BLOCK_MAGIC 0xDD
+#define PAGE_SIZE 4096
+
+typedef struct block_header {
+  uint8_t magic;
+  bool in_use;
+  size_t size;
+  struct block_header *prev;
+  struct block_header *next;
+} block_header;
+
+typedef struct heap_header {
+  uint8_t magic;
+  size_t total_blocks;
+  size_t total_pages;
+} heap_header;
 
 char *heap_start = NULL;
 
@@ -18,59 +35,9 @@ static heap_header *get_heap_header() {
 
 static block_header *find_last_block() {
   block_header *block = (block_header *)(heap_start + sizeof(heap_header));
-  while (block->next) {
-    block = block->next;
-  }
+  while (block->next) block = block->next;
   return block;
 }
-
-// static block_header *find_previous_used_block(block_header *ptr) {
-//   block_header *cur = ptr;
-//   while (cur->prev != NULL) {
-//     cur = cur->prev;
-//     if (cur->in_use) return cur;
-//   }
-//   return NULL;
-// }
-
-// static void reduce_heap_if_possible() {
-//   block_header *last_block = find_last_block();
-//   block_header *prev_used_block = find_previous_used_block(last_block);
-
-//   // shrink to min 1 page
-//   if (prev_used_block == NULL) {
-//     if (last_block->size > PAGE_SIZE) {
-//       last_block->size = PAGE_SIZE;
-//     }
-//     prev_used_block = last_block;
-//   }
-
-//   // calc new end of mem
-//   void *new_end = (char *)prev_used_block + sizeof(block_header) + prev_used_block->size;
-//   void *heap_end = sbrk(0);
-
-//   heap_header *hdr = get_heap_header();
-
-//   // shrink heap page by page
-//   while (new_end < heap_end - PAGE_SIZE) { 
-//     if (sbrk(-PAGE_SIZE) == (void *)-1) break;
-//     heap_end = sbrk(0); 
-//     hdr->total_pages--;
-//   }
-
-//   // handle leftover gap, remove free bytes
-//   if ((size_t)((char *)heap_end - (char *)new_end) > sizeof(block_header) + 1) {
-//     block_header *free_block = (block_header *)new_end;
-
-//     free_block->magic = BLOCK_MAGIC;
-//     free_block->in_use = false;
-//     free_block->prev = prev_used_block;
-//     free_block->next = NULL;
-//     free_block->size = (char *)heap_end - (char *)new_end - sizeof(block_header);
-
-//     prev_used_block->next = free_block;
-//   }
-// }
 
 bool vedfree(void *ptr) {
   if (!ptr) return false;
@@ -101,7 +68,6 @@ bool vedfree(void *ptr) {
     hdr->total_blocks--;
   }
 
-  // reduce_heap_if_possible();
   return true;
 }
 
@@ -133,8 +99,6 @@ static void *add_used_block(size_t size) {
     }
 
     fit->in_use = true;
-
-    // create new free block
     size_t remaining = fit->size - size;
 
     if (remaining > sizeof(block_header) + 1) {
