@@ -128,6 +128,7 @@ void bench_stress() {
     void *arr3[1000] = {0};
 
     vedalloc_reset();
+    srand(42);
     long start = ns();
     for (int i = 0; i < STRESS_OPS; i++) {
         int idx = rand() % 1000;
@@ -140,6 +141,7 @@ void bench_stress() {
     }
     long v1 = ns() - start;
 
+    srand(42);
     start = ns();
     for (int i = 0; i < STRESS_OPS; i++) {
         int idx = rand() % 1000;
@@ -152,6 +154,7 @@ void bench_stress() {
     }
     long v2 = ns() - start;
 
+    srand(42);
     start = ns();
     for (int i = 0; i < STRESS_OPS; i++) {
         int idx = rand() % 1000;
@@ -167,72 +170,11 @@ void bench_stress() {
     print_result("stress random workload", v1, v2, std);
 }
 
-// void bench_fragment_reuse() {
-//     vedalloc_reset();
-//     long start = ns();
-//     for (int i = 0; i < ITER; i++) {
-//         void *a = vedalloc(100);
-//         void *b = vedalloc(200);
-//         void *c = vedalloc(300);
-
-//         vedfree(b);
-//         void *d = vedalloc(150);
-
-//         vedfree(a);
-//         vedfree(c);
-//         vedfree(d);
-//     }
-//     long my_ns = ns() - start;
-
-//     start = ns();
-//     for (int i = 0; i < ITER; i++) {
-//         void *a = malloc(100);
-//         void *b = malloc(200);
-//         void *c = malloc(300);
-
-//         free(b);
-//         void *d = malloc(150);
-
-//         free(a);
-//         free(c);
-//         free(d);
-//     }
-//     long std_ns = ns() - start;
-
-//     print_result("fragment reuse", my_ns, std_ns);
-// }
-
-// void fragmentation_stats() {
-//     if (!heap_start) return;
-
-//     block_header *b = (block_header *)(heap_start + sizeof(heap_header));
-//     size_t total_free = 0;
-//     size_t largest = 0;
-
-//     while (b) {
-//         if (!b->in_use) {
-//             total_free += b->size;
-//             if (b->size > largest) largest = b->size;
-//         }
-//         b = b->next;
-//     }
-
-//     printf("\nFragmentation stats:\n");
-//     printf("total free memory: %zu bytes\n", total_free);
-//     printf("largest free block: %zu bytes\n", largest);
-
-//     if (total_free > 0)
-//         printf("external fragmentation: %.2f%%\n",
-//                100.0 * (1.0 - (double)largest / total_free));
-// }
-
 int main() {
     bench_single();
     bench_mixed();
     bench_bulk();
     bench_reverse();
     bench_stress();
-    // bench_fragment_reuse();
-    // fragmentation_stats();
     return 0;
 }
