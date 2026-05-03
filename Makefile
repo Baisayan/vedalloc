@@ -1,7 +1,8 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -Iinclude
 
 SRC = src
+TEST = test
 BUILD = build
 
 OBJS = $(BUILD)/vedalloc.o $(BUILD)/vedalloc_v2.o
@@ -17,17 +18,17 @@ $(BUILD)/vedalloc.o: $(SRC)/vedalloc.c | $(BUILD)
 $(BUILD)/vedalloc_v2.o: $(SRC)/vedalloc_v2.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-bench: $(SRC)/benchmark.c $(OBJS)
-	$(CC) $(CFLAGS) $^ -o build/bench
+bench: $(TEST)/benchmark.c $(OBJS)
+	$(CC) $(CFLAGS) $^ -o $(BUILD)/bench
 
-runbench:
-	./build/bench
+runbench: bench
+	./$(BUILD)/bench
 
-test: $(SRC)/main.c $(OBJS)
+test: $(TEST)/main.c $(OBJS)
 	$(CC) $(CFLAGS) $^ -o $(BUILD)/test
 
-run:
-	./build/test
+run: test
+	./$(BUILD)/test
 
 clean:
 	rm -rf $(BUILD)
